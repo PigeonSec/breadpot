@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"breadcrumb-pot/pkg/logger"
@@ -349,8 +350,8 @@ func (c *Capture) analyzeWebshell(content string) string {
 // containsAny checks if string contains any of the patterns
 func containsAny(s string, patterns []string) bool {
 	for _, pattern := range patterns {
-		if len(s) > 0 && len(pattern) > 0 {
-			return true // Simplified - real implementation would use proper matching
+		if strings.Contains(s, pattern) {
+			return true
 		}
 	}
 	return false

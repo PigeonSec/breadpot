@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"io"
 	"net/http"
 	"regexp"
@@ -11,12 +10,8 @@ import (
 )
 
 // handleInteractiveRequest processes requests with payload capture
-func (s *HTTPServer) handleInteractiveRequest(endpoint parser.VulnerableEndpoint, w http.ResponseWriter, r *http.Request) {
+func (s *HTTPServer) handleInteractiveRequest(endpoint parser.VulnerableEndpoint, w http.ResponseWriter, r *http.Request, body []byte) {
 	clientIP := s.getClientIP(r)
-
-	// Read body
-	body, _ := io.ReadAll(r.Body)
-	r.Body = io.NopCloser(bytes.NewBuffer(body)) // Reset for later use
 
 	// Detect attack patterns and capture payloads
 	s.detectAndCapture(endpoint, r, body, clientIP)

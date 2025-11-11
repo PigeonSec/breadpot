@@ -132,7 +132,9 @@ func (s *HTTPServer) createHandler(endpoint parser.VulnerableEndpoint) http.Hand
 		}
 
 		// Handle interactive requests (payload capture)
-		s.handleInteractiveRequest(endpoint, w, r)
+		// Reset body again for handler since we need it
+		r.Body = io.NopCloser(bytes.NewBuffer(body))
+		s.handleInteractiveRequest(endpoint, w, r, body)
 
 		// Generate response
 		status, headers, responseBody := s.generateInteractiveResponse(endpoint, r)
