@@ -548,8 +548,7 @@ func (ui *UIServer) handleInteractions(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Initialize as empty array
-	interactions := []map[string]interface{}{}
+	var interactions []map[string]interface{}
 	scanner := bufio.NewScanner(file)
 
 	for scanner.Scan() {
@@ -580,8 +579,7 @@ func (ui *UIServer) handleCaptures(w http.ResponseWriter, r *http.Request) {
 
 	captureDir := filepath.Join(ui.capturesDir, captureType)
 
-	// Initialize as empty array, not nil
-	files := []map[string]string{}
+	var files []map[string]string
 
 	filepath.WalkDir(captureDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
