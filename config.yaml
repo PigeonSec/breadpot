@@ -1,0 +1,70 @@
+server:
+  http:
+    enabled: true
+    host: 0.0.0.0
+    port: 8080
+    tls: false
+    # cert_file: /path/to/cert.pem
+    # key_file: /path/to/key.pem
+
+  dns:
+    enabled: false
+    host: 0.0.0.0
+    port: 53
+    network: both  # udp, tcp, or both
+
+  tcp:
+    enabled: false
+    ports:
+      - port: 22
+        protocol: ssh
+      - port: 23
+        protocol: telnet
+      - port: 21
+        protocol: ftp
+      - port: 3306
+        protocol: mysql
+
+templates:
+  directory: nuclei-templates/http/cves/2024
+  # Optionally enable specific templates
+  # enabled:
+  #   - CVE-2021-44228
+  #   - CVE-2021-26855
+
+  # Optionally disable specific templates
+  # disabled:
+  #   - some-template-id
+
+  # Filter by tags
+  # tags:
+  #   - cve
+  #   - rce
+  #   - lfi
+
+  # Filter by severity
+  severities:
+    - critical
+    - high
+    - medium
+    # - low
+    # - info
+
+logging:
+  level: info  # debug, info, warn, error
+  file: logs/honeypot.log
+  format: text  # text or json
+  max_size: 100      # Maximum size in MB
+  max_backups: 10    # Maximum number of old log files
+  max_age: 30        # Maximum age in days
+
+responses:
+  interaction: medium  # low, medium, or high
+  delays:
+    enabled: true
+    min: 100ms
+    max: 1s
+
+  # Custom responses for specific templates
+  # custom:
+  #   CVE-2021-44228: "<custom HTML response>"

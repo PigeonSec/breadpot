@@ -1,0 +1,816 @@
+package ui
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"io/fs"
+	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
+	"sync"
+	"time"
+
+	"github.com/gorilla/mux"
+	"github.com/sirupsen/logrus"
+)
+
+// UIServer serves the real-time capture viewer
+type UIServer struct {
+	router       *mux.Router
+	log          *logrus.Logger
+	capturesDir  string
+	clients      map[chan []byte]bool
+	clientsMutex sync.RWMutex
+	stats        *Stats
+	statsMutex   sync.RWMutex
+}
+
+// Stats holds real-time statistics
+type Stats struct {
+	TotalInteractions int64                 `json:"total_interactions"`
+	CommandCaptures   int64                 `json:"command_captures"`
+	FileUploads       int64                 `json:"file_uploads"`
+	WebshellDetects   int64                 `json:"webshell_detects"`
+	SQLInjections     int64                 `json:"sql_injections"`
+	PayloadCaptures   int64                 `json:"payload_captures"`
+	TopCVEs           map[string]int        `json:"top_cves"`
+	TopIPs            map[string]int        `json:"top_ips"`
+	LastUpdate        time.Time             `json:"last_update"`
+}
+
+// NewUIServer creates a new UI server
+func NewUIServer(capturesDir string, log *logrus.Logger) *UIServer {
+	ui := &UIServer{
+		router:      mux.NewRouter(),
+		log:         log,
+		capturesDir: capturesDir,
+		clients:     make(map[chan []byte]bool),
+		stats: &Stats{
+			TopCVEs: make(map[string]int),
+			TopIPs:  make(map[string]int),
+		},
+	}
+
+	ui.setupRoutes()
+	return ui
+}
+
+// setupRoutes configures HTTP routes
+func (ui *UIServer) setupRoutes() {
+	ui.router.HandleFunc("/", ui.handleIndex).Methods("GET")
+	ui.router.HandleFunc("/api/stats", ui.handleStats).Methods("GET")
+	ui.router.HandleFunc("/api/interactions", ui.handleInteractions).Methods("GET")
+	ui.router.HandleFunc("/api/captures/{type}", ui.handleCaptures).Methods("GET")
+	ui.router.HandleFunc("/api/captures/{type}/{file}", ui.handleCaptureFile).Methods("GET")
+	ui.router.HandleFunc("/api/stream", ui.handleSSE).Methods("GET")
+}
+
+// Start starts the UI server
+func (ui *UIServer) Start(port int) error {
+	ui.log.Infof("Starting UI server on :%d", port)
+
+	// Start background stats updater
+	go ui.updateStatsLoop()
+
+	// Start interaction watcher
+	go ui.watchInteractions()
+
+	return http.ListenAndServe(fmt.Sprintf(":%d", port), ui.router)
+}
+
+// handleIndex serves the main UI
+func (ui *UIServer) handleIndex(w http.ResponseWriter, r *http.Request) {
+	html := `<!DOCTYPE html>
+<html>
+<head>
+    <title>Breadcrumb Pot - Live Captures</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Monaco', 'Courier New', monospace;
+            background: #0a0e27;
+            color: #00ff41;
+            padding: 20px;
+        }
+        .header {
+            border-bottom: 2px solid #00ff41;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            font-size: 24px;
+            color: #00ff41;
+            text-shadow: 0 0 10px #00ff41;
+        }
+        .subtitle { color: #888; font-size: 12px; margin-top: 5px; }
+        .container { display: flex; gap: 20px; }
+        .stats-panel {
+            flex: 0 0 300px;
+            background: #151930;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #00ff41;
+            height: fit-content;
+        }
+        .main-panel { flex: 1; }
+        .stat-box {
+            background: #0a0e27;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            border-left: 3px solid #00ff41;
+        }
+        .stat-label {
+            color: #888;
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #00ff41;
+            text-shadow: 0 0 5px #00ff41;
+        }
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .tab {
+            padding: 10px 20px;
+            background: #151930;
+            border: 1px solid #00ff41;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .tab:hover, .tab.active {
+            background: #00ff41;
+            color: #0a0e27;
+            text-shadow: none;
+        }
+        .content {
+            background: #151930;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #00ff41;
+            min-height: 600px;
+            max-height: 800px;
+            overflow-y: auto;
+        }
+        .interaction {
+            background: #0a0e27;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            border-left: 3px solid #ff0066;
+            animation: slideIn 0.3s;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        .interaction.new {
+            border-left-color: #ffaa00;
+            animation: pulse 1s;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .int-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .int-method {
+            color: #ffaa00;
+            font-weight: bold;
+            padding: 2px 6px;
+            background: rgba(255, 170, 0, 0.1);
+            border-radius: 3px;
+        }
+        .int-path { color: #00ff41; }
+        .int-ip { color: #ff0066; }
+        .int-cve {
+            background: #ff0066;
+            color: #fff;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+        .int-severity {
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+        .severity-critical { background: #ff0000; color: #fff; }
+        .severity-high { background: #ff6600; color: #fff; }
+        .severity-medium { background: #ffaa00; color: #000; }
+        .severity-low { background: #00ff41; color: #000; }
+        .capture-item {
+            background: #0a0e27;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            border-left: 3px solid #00ff41;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .capture-item:hover {
+            background: #151930;
+            border-left-width: 5px;
+        }
+        .capture-icon {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        .top-list {
+            list-style: none;
+            font-size: 12px;
+        }
+        .top-list li {
+            padding: 5px 0;
+            border-bottom: 1px solid #0a0e27;
+        }
+        .top-list-label { color: #888; }
+        .top-list-value {
+            float: right;
+            color: #00ff41;
+            font-weight: bold;
+        }
+        .live-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #ff0066;
+            border-radius: 50%;
+            animation: blink 1s infinite;
+            margin-right: 5px;
+        }
+        @keyframes blink {
+            0%, 50%, 100% { opacity: 1; }
+            25%, 75% { opacity: 0.3; }
+        }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #0a0e27; }
+        ::-webkit-scrollbar-thumb { background: #00ff41; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #00cc33; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🍯 Breadcrumb Pot - Live Capture Monitor</h1>
+        <div class="subtitle">
+            <span class="live-indicator"></span>
+            Real-time attack monitoring and capture analysis
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="stats-panel">
+            <h3 style="margin-bottom: 15px;">📊 Live Statistics</h3>
+            <div class="stat-box">
+                <div class="stat-label">Total Interactions</div>
+                <div class="stat-value" id="total-interactions">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Command Captures</div>
+                <div class="stat-value" id="command-captures">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">File Uploads</div>
+                <div class="stat-value" id="file-uploads">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Webshell Detections</div>
+                <div class="stat-value" id="webshell-detects">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">SQL Injections</div>
+                <div class="stat-value" id="sql-injections">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Payload Captures</div>
+                <div class="stat-value" id="payload-captures">0</div>
+            </div>
+
+            <h4 style="margin: 20px 0 10px; color: #888; font-size: 12px;">TOP CVEs</h4>
+            <ul class="top-list" id="top-cves"></ul>
+
+            <h4 style="margin: 20px 0 10px; color: #888; font-size: 12px;">TOP ATTACKERS</h4>
+            <ul class="top-list" id="top-ips"></ul>
+        </div>
+
+        <div class="main-panel">
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('interactions')">🔴 Live Interactions</div>
+                <div class="tab" onclick="switchTab('commands')">💻 Commands</div>
+                <div class="tab" onclick="switchTab('files')">📁 Files</div>
+                <div class="tab" onclick="switchTab('webshells')">🐚 Webshells</div>
+                <div class="tab" onclick="switchTab('sql')">🗄️ SQL</div>
+                <div class="tab" onclick="switchTab('payloads')">💣 Payloads</div>
+            </div>
+            <div class="content" id="content"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentTab = 'interactions';
+        let eventSource = null;
+
+        // Connect to SSE stream
+        function connectSSE() {
+            eventSource = new EventSource('/api/stream');
+
+            eventSource.addEventListener('stats', (e) => {
+                const stats = JSON.parse(e.data);
+                updateStats(stats);
+            });
+
+            eventSource.addEventListener('interaction', (e) => {
+                const interaction = JSON.parse(e.data);
+                if (currentTab === 'interactions') {
+                    addInteraction(interaction);
+                }
+            });
+
+            eventSource.onerror = () => {
+                console.log('SSE connection lost, reconnecting...');
+                setTimeout(connectSSE, 5000);
+            };
+        }
+
+        function updateStats(stats) {
+            document.getElementById('total-interactions').textContent = stats.total_interactions || 0;
+            document.getElementById('command-captures').textContent = stats.command_captures || 0;
+            document.getElementById('file-uploads').textContent = stats.file_uploads || 0;
+            document.getElementById('webshell-detects').textContent = stats.webshell_detects || 0;
+            document.getElementById('sql-injections').textContent = stats.sql_injections || 0;
+            document.getElementById('payload-captures').textContent = stats.payload_captures || 0;
+
+            // Update top CVEs
+            const cvesList = document.getElementById('top-cves');
+            cvesList.innerHTML = '';
+            const cves = Object.entries(stats.top_cves || {}).sort((a, b) => b[1] - a[1]).slice(0, 5);
+            cves.forEach(([cve, count]) => {
+                cvesList.innerHTML += '<li><span class="top-list-label">' + cve + '</span><span class="top-list-value">' + count + '</span></li>';
+            });
+
+            // Update top IPs
+            const ipsList = document.getElementById('top-ips');
+            ipsList.innerHTML = '';
+            const ips = Object.entries(stats.top_ips || {}).sort((a, b) => b[1] - a[1]).slice(0, 5);
+            ips.forEach(([ip, count]) => {
+                ipsList.innerHTML += '<li><span class="top-list-label">' + ip + '</span><span class="top-list-value">' + count + '</span></li>';
+            });
+        }
+
+        function addInteraction(int) {
+            const content = document.getElementById('content');
+            const div = document.createElement('div');
+            div.className = 'interaction new';
+
+            const severity = int.severity || 'unknown';
+            const cve = int.cve || int.template_id || 'unknown';
+            const method = int.method || 'GET';
+            const path = int.path || '/';
+            const sourceIp = int.source_ip || 'unknown';
+            const timestamp = int.timestamp || new Date().toISOString();
+            const userAgent = (int.metadata?.user_agent || 'unknown').substring(0, 40);
+
+            let html = '<div class="int-header"><div>';
+            html += '<span class="int-method">' + method + '</span>';
+            html += '<span class="int-path">' + path + '</span>';
+            html += '</div><div>';
+            if (cve !== 'unknown' && cve !== 'unmatched') {
+                html += '<span class="int-cve">' + cve + '</span>';
+            }
+            if (severity !== 'unknown') {
+                html += '<span class="int-severity severity-' + severity + '">' + severity.toUpperCase() + '</span>';
+            }
+            html += '</div></div>';
+            html += '<div style="font-size: 11px; color: #888;">';
+            html += '<span class="int-ip">🌐 ' + sourceIp + '</span> • ';
+            html += '<span>' + timestamp + '</span> • ';
+            html += '<span>UA: ' + userAgent + '...</span>';
+            html += '</div>';
+
+            div.innerHTML = html;
+            content.insertBefore(div, content.firstChild);
+
+            // Remove 'new' class after animation
+            setTimeout(() => div.classList.remove('new'), 1000);
+
+            // Keep only last 50 interactions
+            while (content.children.length > 50) {
+                content.removeChild(content.lastChild);
+            }
+        }
+
+        async function switchTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+
+            const content = document.getElementById('content');
+
+            if (tab === 'interactions') {
+                await loadInteractions();
+            } else {
+                await loadCaptures(tab);
+            }
+        }
+
+        async function loadInteractions() {
+            const content = document.getElementById('content');
+            content.innerHTML = '<div style="text-align: center; padding: 40px; color: #888;">Loading interactions...</div>';
+
+            try {
+                const response = await fetch('/api/interactions?limit=50');
+                const interactions = await response.json();
+
+                content.innerHTML = '';
+                interactions.forEach(int => addInteraction(int));
+
+                if (interactions.length === 0) {
+                    content.innerHTML = '<div style="text-align: center; padding: 40px; color: #888;">No interactions yet. Waiting for attacks...</div>';
+                }
+            } catch (e) {
+                content.innerHTML = '<div style="text-align: center; padding: 40px; color: #ff0066;">Error loading interactions: ' + e.message + '</div>';
+            }
+        }
+
+        async function loadCaptures(type) {
+            const content = document.getElementById('content');
+            content.innerHTML = '<div style="text-align: center; padding: 40px; color: #888;">Loading ' + type + '...</div>';
+
+            try {
+                const response = await fetch('/api/captures/' + type);
+                const captures = await response.json();
+
+                content.innerHTML = '';
+
+                if (captures.length === 0) {
+                    content.innerHTML = '<div style="text-align: center; padding: 40px; color: #888;">No ' + type + ' captured yet.</div>';
+                    return;
+                }
+
+                captures.forEach(cap => {
+                    const div = document.createElement('div');
+                    div.className = 'capture-item';
+                    div.onclick = () => viewCapture(type, cap.name);
+
+                    const icon = type === 'commands' ? '💻' : type === 'files' ? '📁' : type === 'webshells' ? '🐚' : type === 'sql' ? '🗄️' : '💣';
+
+                    div.innerHTML = '<span class="capture-icon">' + icon + '</span>' +
+                        '<strong>' + cap.name + '</strong>' +
+                        '<div style="font-size: 11px; color: #888; margin-top: 5px;">' +
+                        cap.size + ' • ' + cap.modified +
+                        '</div>';
+                    content.appendChild(div);
+                });
+            } catch (e) {
+                content.innerHTML = '<div style="text-align: center; padding: 40px; color: #ff0066;">Error loading ' + type + ': ' + e.message + '</div>';
+            }
+        }
+
+        async function viewCapture(type, file) {
+            const content = document.getElementById('content');
+            content.innerHTML = '<div style="text-align: center; padding: 40px; color: #888;">Loading file...</div>';
+
+            try {
+                const response = await fetch('/api/captures/' + type + '/' + file);
+                const text = await response.text();
+
+                content.innerHTML = '<div style="margin-bottom: 15px;">' +
+                    '<button onclick="switchTab(\'' + type + '\')" style="background: #00ff41; color: #0a0e27; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer;">← Back</button>' +
+                    '<strong style="margin-left: 15px;">' + file + '</strong>' +
+                    '</div>' +
+                    '<pre style="background: #0a0e27; padding: 15px; border-radius: 4px; overflow-x: auto; font-size: 12px;">' + escapeHtml(text) + '</pre>';
+            } catch (e) {
+                content.innerHTML = '<div style="text-align: center; padding: 40px; color: #ff0066;">Error loading file: ' + e.message + '</div>';
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Initial load
+        connectSSE();
+        loadInteractions();
+
+        // Refresh stats every 5 seconds
+        setInterval(() => {
+            fetch('/api/stats')
+                .then(r => r.json())
+                .then(updateStats)
+                .catch(console.error);
+        }, 5000);
+    </script>
+</body>
+</html>`
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(html))
+}
+
+// handleStats returns current statistics
+func (ui *UIServer) handleStats(w http.ResponseWriter, r *http.Request) {
+	ui.statsMutex.RLock()
+	defer ui.statsMutex.RUnlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(ui.stats)
+}
+
+// handleInteractions returns recent interactions
+func (ui *UIServer) handleInteractions(w http.ResponseWriter, r *http.Request) {
+	interactionsFile := filepath.Join(ui.capturesDir, "interactions.jsonl")
+
+	file, err := os.Open(interactionsFile)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("[]"))
+		return
+	}
+	defer file.Close()
+
+	var interactions []map[string]interface{}
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		var interaction map[string]interface{}
+		if err := json.Unmarshal(scanner.Bytes(), &interaction); err == nil {
+			interactions = append(interactions, interaction)
+		}
+	}
+
+	// Return last 50 interactions
+	if len(interactions) > 50 {
+		interactions = interactions[len(interactions)-50:]
+	}
+
+	// Reverse order (newest first)
+	for i, j := 0, len(interactions)-1; i < j; i, j = i+1, j-1 {
+		interactions[i], interactions[j] = interactions[j], interactions[i]
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(interactions)
+}
+
+// handleCaptures lists captures of a specific type
+func (ui *UIServer) handleCaptures(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	captureType := vars["type"]
+
+	captureDir := filepath.Join(ui.capturesDir, captureType)
+
+	var files []map[string]string
+
+	filepath.WalkDir(captureDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+
+		// Skip metadata files
+		if filepath.Ext(path) == ".meta" || filepath.Ext(path) == ".analysis" {
+			return nil
+		}
+
+		info, _ := d.Info()
+		files = append(files, map[string]string{
+			"name":     d.Name(),
+			"size":     fmt.Sprintf("%d bytes", info.Size()),
+			"modified": info.ModTime().Format("2006-01-02 15:04:05"),
+		})
+
+		return nil
+	})
+
+	// Sort by modification time (newest first)
+	sort.Slice(files, func(i, j int) bool {
+		return files[i]["modified"] > files[j]["modified"]
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(files)
+}
+
+// handleCaptureFile serves a specific capture file
+func (ui *UIServer) handleCaptureFile(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	captureType := vars["type"]
+	fileName := vars["file"]
+
+	filePath := filepath.Join(ui.capturesDir, captureType, fileName)
+
+	// Security check
+	if !filepath.HasPrefix(filePath, ui.capturesDir) {
+		http.Error(w, "Invalid file path", http.StatusBadRequest)
+		return
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write(data)
+}
+
+// handleSSE handles Server-Sent Events for live updates
+func (ui *UIServer) handleSSE(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	// Create channel for this client
+	messageChan := make(chan []byte, 10)
+
+	ui.clientsMutex.Lock()
+	ui.clients[messageChan] = true
+	ui.clientsMutex.Unlock()
+
+	// Remove client on disconnect
+	defer func() {
+		ui.clientsMutex.Lock()
+		delete(ui.clients, messageChan)
+		ui.clientsMutex.Unlock()
+		close(messageChan)
+	}()
+
+	// Send initial stats
+	ui.statsMutex.RLock()
+	statsData, _ := json.Marshal(ui.stats)
+	ui.statsMutex.RUnlock()
+	fmt.Fprintf(w, "event: stats\ndata: %s\n\n", statsData)
+	w.(http.Flusher).Flush()
+
+	// Listen for messages or client disconnect
+	notify := r.Context().Done()
+	for {
+		select {
+		case <-notify:
+			return
+		case msg := <-messageChan:
+			fmt.Fprintf(w, "%s\n\n", msg)
+			w.(http.Flusher).Flush()
+		}
+	}
+}
+
+// broadcastToClients sends message to all connected clients
+func (ui *UIServer) broadcastToClients(eventType string, data interface{}) {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+
+	message := []byte(fmt.Sprintf("event: %s\ndata: %s", eventType, jsonData))
+
+	ui.clientsMutex.RLock()
+	defer ui.clientsMutex.RUnlock()
+
+	for client := range ui.clients {
+		select {
+		case client <- message:
+		default:
+			// Client buffer full, skip
+		}
+	}
+}
+
+// updateStatsLoop periodically updates statistics
+func (ui *UIServer) updateStatsLoop() {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		ui.updateStats()
+
+		// Broadcast to clients
+		ui.statsMutex.RLock()
+		ui.broadcastToClients("stats", ui.stats)
+		ui.statsMutex.RUnlock()
+	}
+}
+
+// updateStats recalculates statistics from captures
+func (ui *UIServer) updateStats() {
+	ui.statsMutex.Lock()
+	defer ui.statsMutex.Unlock()
+
+	// Count files in each directory
+	ui.stats.CommandCaptures = ui.countFiles("commands")
+	ui.stats.FileUploads = ui.countFiles("files")
+	ui.stats.WebshellDetects = ui.countFiles("webshells")
+	ui.stats.SQLInjections = ui.countFiles("sql")
+	ui.stats.PayloadCaptures = ui.countFiles("payloads")
+
+	// Parse interactions.jsonl for stats
+	interactionsFile := filepath.Join(ui.capturesDir, "interactions.jsonl")
+	file, err := os.Open(interactionsFile)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	topCVEs := make(map[string]int)
+	topIPs := make(map[string]int)
+	var count int64
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		var interaction map[string]interface{}
+		if err := json.Unmarshal(scanner.Bytes(), &interaction); err == nil {
+			count++
+
+			if cve, ok := interaction["cve"].(string); ok && cve != "" && cve != "unknown" {
+				topCVEs[cve]++
+			}
+
+			if ip, ok := interaction["source_ip"].(string); ok && ip != "" {
+				topIPs[ip]++
+			}
+		}
+	}
+
+	ui.stats.TotalInteractions = count
+	ui.stats.TopCVEs = topCVEs
+	ui.stats.TopIPs = topIPs
+	ui.stats.LastUpdate = time.Now()
+}
+
+// countFiles counts non-metadata files in a directory
+func (ui *UIServer) countFiles(subdir string) int64 {
+	var count int64
+	dir := filepath.Join(ui.capturesDir, subdir)
+
+	filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+
+		// Skip metadata files
+		ext := filepath.Ext(path)
+		if ext != ".meta" && ext != ".analysis" {
+			count++
+		}
+
+		return nil
+	})
+
+	return count
+}
+
+// watchInteractions watches for new interactions and broadcasts them
+func (ui *UIServer) watchInteractions() {
+	interactionsFile := filepath.Join(ui.capturesDir, "interactions.jsonl")
+
+	var lastSize int64
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		info, err := os.Stat(interactionsFile)
+		if err != nil {
+			continue
+		}
+
+		if info.Size() > lastSize {
+			// File has grown, read new lines
+			file, err := os.Open(interactionsFile)
+			if err != nil {
+				continue
+			}
+
+			file.Seek(lastSize, 0)
+			scanner := bufio.NewScanner(file)
+
+			for scanner.Scan() {
+				var interaction map[string]interface{}
+				if err := json.Unmarshal(scanner.Bytes(), &interaction); err == nil {
+					ui.broadcastToClients("interaction", interaction)
+				}
+			}
+
+			lastSize = info.Size()
+			file.Close()
+		}
+	}
+}

@@ -1,0 +1,45 @@
+server:
+  http:
+    enabled: true
+    host: 0.0.0.0
+    port: 8080
+    tls: false
+
+  dns:
+    enabled: false
+    host: 0.0.0.0
+    port: 53
+    network: both
+
+  tcp:
+    enabled: false
+    ports:
+      - port: 22
+        protocol: ssh
+
+  ui:
+    enabled: true
+    port: 9090
+
+templates:
+  # Use 2020 CVEs for fast loading (or your example templates)
+  directory: templates  # Change to nuclei-templates/http/cves/2020 for real CVEs
+  severities:
+    - critical
+    - high
+    - medium
+
+logging:
+  level: info
+  file: logs/honeypot.log
+  format: text
+  max_size: 100
+  max_backups: 10
+  max_age: 30
+
+responses:
+  interaction: high  # Maximum interaction for payload capture
+  delays:
+    enabled: true
+    min: 100ms
+    max: 1s

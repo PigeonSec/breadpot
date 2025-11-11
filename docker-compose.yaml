@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  honeypot:
+    build: .
+    image: breadcrumb-pot:latest
+    container_name: breadcrumb-pot
+    restart: unless-stopped
+
+    ports:
+      # HTTP
+      - "8080:8080"
+
+      # DNS (requires privileged or NET_ADMIN capability)
+      - "53:53/udp"
+      - "53:53/tcp"
+
+      # TCP services
+      - "22:22"    # SSH
+      - "23:23"    # Telnet
+      - "21:21"    # FTP
+      - "3306:3306" # MySQL
+
+    volumes:
+      # Mount configuration
+      - ./config.yaml:/app/config.yaml:ro
+
+      # Mount templates directory
+      - ./templates:/app/templates:ro
+
+      # Mount logs directory (persistent)
+      - ./logs:/app/logs
+
+    # For DNS on port 53, you may need privileged mode or NET_ADMIN
+    # Uncomment one of these if needed:
+    # privileged: true
+    # cap_add:
+    #   - NET_ADMIN
+    #   - NET_BIND_SERVICE
+
+    environment:
+      - TZ=UTC
+
+    networks:
+      - honeypot-net
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  honeypot-net:
+    driver: bridge

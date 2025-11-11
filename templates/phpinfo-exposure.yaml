@@ -1,0 +1,32 @@
+id: phpinfo-exposure
+info:
+  name: PHP Info Page Exposure
+  author: pdteam
+  severity: medium
+  description: PHP Info page is publicly accessible and exposes sensitive system information
+  tags:
+    - exposure
+    - php
+    - info-disclosure
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/phpinfo.php"
+      - "{{BaseURL}}/info.php"
+      - "{{BaseURL}}/test.php"
+      - "{{BaseURL}}/php.php"
+      - "{{BaseURL}}/infophp.php"
+      - "{{BaseURL}}/index.php?view=phpinfo"
+
+    matchers:
+      - type: status
+        status:
+          - 200
+
+      - type: word
+        words:
+          - "PHP Version"
+          - "phpinfo()"
+          - "System"
+          - "Build Date"

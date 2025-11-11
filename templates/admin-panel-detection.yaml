@@ -1,0 +1,40 @@
+id: admin-panel-detection
+info:
+  name: Admin Panel Detection
+  author: pdteam
+  severity: medium
+  description: Detects publicly accessible admin panels
+  tags:
+    - panel
+    - admin
+    - exposure
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/admin"
+      - "{{BaseURL}}/admin/"
+      - "{{BaseURL}}/admin/login"
+      - "{{BaseURL}}/administrator"
+      - "{{BaseURL}}/phpmyadmin"
+      - "{{BaseURL}}/cpanel"
+      - "{{BaseURL}}/wp-admin"
+      - "{{BaseURL}}/wp-login.php"
+      - "{{BaseURL}}/dashboard"
+      - "{{BaseURL}}/admin.php"
+      - "{{BaseURL}}/admin/index.php"
+
+    matchers:
+      - type: status
+        status:
+          - 200
+          - 401
+          - 403
+
+      - type: word
+        words:
+          - "admin"
+          - "login"
+          - "username"
+          - "password"
+          - "dashboard"

@@ -1,0 +1,45 @@
+# Binaries
+breadcrumb-pot
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test and build files
+*.test
+*.out
+*.db
+
+# Captures and logs
+captures/
+logs/
+*.log
+
+# Go workspace files
+go.work
+go.work.sum
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Nuclei templates (too large to commit)
+nuclei-templates/
+
+# Config with secrets (if any)
+config.local.yaml
+*.key
+*.pem
+*.crt

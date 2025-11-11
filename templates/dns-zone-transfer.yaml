@@ -1,0 +1,21 @@
+id: dns-zone-transfer
+info:
+  name: DNS Zone Transfer Detection
+  author: pdteam
+  severity: high
+  description: DNS server allows zone transfer (AXFR) which can expose all DNS records
+  tags:
+    - dns
+    - zone-transfer
+    - exposure
+
+dns:
+  - name: "{{FQDN}}"
+    type: AXFR
+    class: IN
+
+    matchers:
+      - type: word
+        words:
+          - "SOA"
+          - "NS"
