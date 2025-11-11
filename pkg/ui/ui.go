@@ -82,339 +82,199 @@ func (ui *UIServer) Start(port int) error {
 
 // handleIndex serves the main UI
 func (ui *UIServer) handleIndex(w http.ResponseWriter, r *http.Request) {
-	html := `<!DOCTYPE html>
+	html := `
+<!DOCTYPE html>
 <html>
 <head>
     <title>breadcrumb-pot</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+            font-family: 'SF Mono', Monaco, 'Courier New', monospace;
             background: #000;
             color: #0f0;
-            padding: 0;
+            padding: 20px;
             font-size: 13px;
-            line-height: 1.4;
+            line-height: 1.6;
         }
-        .header {
-            border-bottom: 2px solid #00ff41;
-            padding-bottom: 15px;
-            margin-bottom: 20px;
+        .terminal {
+            max-width: 1400px;
+            margin: 0 auto;
         }
+        .prompt { color: #0f0; }
+        .prompt:before { content: '$ '; color: #0f0; }
         h1 {
-            font-size: 24px;
-            color: #00ff41;
-            text-shadow: 0 0 10px #00ff41;
+            font-size: 14px;
+            font-weight: normal;
+            margin-bottom: 20px;
+            color: #0f0;
         }
-        .subtitle { color: #888; font-size: 12px; margin-top: 5px; }
-        .container { display: flex; gap: 20px; }
-        .stats-panel {
-            flex: 0 0 300px;
-            background: #151930;
-            padding: 15px;
-            border-radius: 8px;
-            border: 1px solid #00ff41;
-            height: fit-content;
+        .stats {
+            margin: 20px 0;
+            border-top: 1px solid #333;
+            border-bottom: 1px solid #333;
+            padding: 10px 0;
         }
-        .main-panel { flex: 1; }
-        .stat-box {
-            background: #0a0e27;
-            padding: 10px;
-            margin-bottom: 10px;
-            border-radius: 4px;
-            border-left: 3px solid #00ff41;
-        }
-        .stat-label {
-            color: #888;
-            font-size: 11px;
-            text-transform: uppercase;
-        }
-        .stat-value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #00ff41;
-            text-shadow: 0 0 5px #00ff41;
-        }
-        .tabs {
+        .stat-line {
             display: flex;
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-        .tab {
-            padding: 10px 20px;
-            background: #151930;
-            border: 1px solid #00ff41;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        .tab:hover, .tab.active {
-            background: #00ff41;
-            color: #0a0e27;
-            text-shadow: none;
-        }
-        .content {
-            background: #151930;
-            padding: 15px;
-            border-radius: 8px;
-            border: 1px solid #00ff41;
-            min-height: 600px;
-            max-height: 800px;
-            overflow-y: auto;
-        }
-        .interaction {
-            background: #0a0e27;
-            padding: 12px;
-            margin-bottom: 10px;
-            border-radius: 4px;
-            border-left: 3px solid #ff0066;
-            animation: slideIn 0.3s;
-        }
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateX(-20px); }
-            to { opacity: 1; transform: translateX(0); }
-        }
-        .interaction.new {
-            border-left-color: #ffaa00;
-            animation: pulse 1s;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
-        }
-        .int-header {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 8px;
-        }
-        .int-method {
-            color: #ffaa00;
-            font-weight: bold;
-            padding: 2px 6px;
-            background: rgba(255, 170, 0, 0.1);
-            border-radius: 3px;
-        }
-        .int-path { color: #00ff41; }
-        .int-ip { color: #ff0066; }
-        .int-cve {
-            background: #ff0066;
-            color: #fff;
-            padding: 2px 8px;
-            border-radius: 3px;
-            font-size: 11px;
-            font-weight: bold;
-        }
-        .int-severity {
-            padding: 2px 8px;
-            border-radius: 3px;
-            font-size: 11px;
-            font-weight: bold;
-        }
-        .severity-critical { background: #ff0000; color: #fff; }
-        .severity-high { background: #ff6600; color: #fff; }
-        .severity-medium { background: #ffaa00; color: #000; }
-        .severity-low { background: #00ff41; color: #000; }
-        .capture-item {
-            background: #0a0e27;
-            padding: 10px;
-            margin-bottom: 8px;
-            border-radius: 4px;
-            border-left: 3px solid #00ff41;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .capture-item:hover {
-            background: #151930;
-            border-left-width: 5px;
-        }
-        .capture-icon {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            margin-right: 8px;
-            vertical-align: middle;
-        }
-        .top-list {
-            list-style: none;
+            gap: 30px;
+            margin: 5px 0;
             font-size: 12px;
         }
-        .top-list li {
-            padding: 5px 0;
-            border-bottom: 1px solid #0a0e27;
+        .stat-label { color: #666; min-width: 120px; }
+        .stat-value { color: #0f0; }
+        .tabs {
+            margin: 20px 0;
+            display: flex;
+            gap: 15px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 10px;
         }
-        .top-list-label { color: #888; }
-        .top-list-value {
-            float: right;
-            color: #00ff41;
-            font-weight: bold;
+        .tab {
+            cursor: pointer;
+            color: #666;
+            padding: 5px 10px;
+            border: 1px solid transparent;
         }
-        .live-indicator {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            background: #ff0066;
-            border-radius: 50%;
-            animation: blink 1s infinite;
-            margin-right: 5px;
+        .tab:hover { color: #0f0; }
+        .tab.active {
+            color: #0f0;
+            border: 1px solid #333;
         }
-        @keyframes blink {
-            0%, 50%, 100% { opacity: 1; }
-            25%, 75% { opacity: 0.3; }
+        .feed {
+            margin-top: 20px;
+            max-height: calc(100vh - 350px);
+            overflow-y: auto;
         }
+        .entry {
+            margin: 10px 0;
+            padding: 8px 0;
+            border-bottom: 1px solid #111;
+            font-size: 12px;
+        }
+        .entry.new { animation: flash 0.5s; }
+        @keyframes flash { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .timestamp { color: #666; margin-right: 10px; }
+        .method { color: #ff0; margin-right: 10px; }
+        .path { color: #0ff; margin-right: 10px; }
+        .ip { color: #f0f; }
+        .cve { color: #f00; margin-left: 10px; }
+        .severity-critical { color: #f00; }
+        .severity-high { color: #f80; }
+        .severity-medium { color: #ff0; }
+        .severity-low { color: #0f0; }
         ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #0a0e27; }
-        ::-webkit-scrollbar-thumb { background: #00ff41; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #00cc33; }
+        ::-webkit-scrollbar-track { background: #000; }
+        ::-webkit-scrollbar-thumb { background: #333; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+        .blink { animation: blink 1s infinite; }
+        @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+        .capture-list { list-style: none; }
+        .capture-list li {
+            padding: 5px 0;
+            border-bottom: 1px solid #111;
+            cursor: pointer;
+        }
+        .capture-list li:hover { color: #ff0; }
+        pre {
+            background: #111;
+            padding: 15px;
+            overflow-x: auto;
+            margin: 10px 0;
+            border: 1px solid #333;
+        }
+        button {
+            background: #000;
+            color: #0f0;
+            border: 1px solid #333;
+            padding: 5px 15px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 12px;
+        }
+        button:hover { border-color: #0f0; }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>🍯 Breadcrumb Pot - Live Capture Monitor</h1>
-        <div class="subtitle">
-            <span class="live-indicator"></span>
-            Real-time attack monitoring and capture analysis
-        </div>
-    </div>
+    <div class="terminal">
+        <div class="prompt">breadcrumb-pot --monitor</div>
+        <h1>[LIVE CAPTURE FEED] <span class="blink">●</span></h1>
 
-    <div class="container">
-        <div class="stats-panel">
-            <h3 style="margin-bottom: 15px;">📊 Live Statistics</h3>
-            <div class="stat-box">
-                <div class="stat-label">Total Interactions</div>
-                <div class="stat-value" id="total-interactions">0</div>
+        <div class="stats">
+            <div class="stat-line">
+                <span class="stat-label">interactions</span><span class="stat-value" id="total">0</span>
+                <span class="stat-label">commands</span><span class="stat-value" id="commands">0</span>
+                <span class="stat-label">files</span><span class="stat-value" id="files">0</span>
+                <span class="stat-label">webshells</span><span class="stat-value" id="webshells">0</span>
+                <span class="stat-label">sql</span><span class="stat-value" id="sql">0</span>
+                <span class="stat-label">payloads</span><span class="stat-value" id="payloads">0</span>
             </div>
-            <div class="stat-box">
-                <div class="stat-label">Command Captures</div>
-                <div class="stat-value" id="command-captures">0</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">File Uploads</div>
-                <div class="stat-value" id="file-uploads">0</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">Webshell Detections</div>
-                <div class="stat-value" id="webshell-detects">0</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">SQL Injections</div>
-                <div class="stat-value" id="sql-injections">0</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">Payload Captures</div>
-                <div class="stat-value" id="payload-captures">0</div>
-            </div>
-
-            <h4 style="margin: 20px 0 10px; color: #888; font-size: 12px;">TOP CVEs</h4>
-            <ul class="top-list" id="top-cves"></ul>
-
-            <h4 style="margin: 20px 0 10px; color: #888; font-size: 12px;">TOP ATTACKERS</h4>
-            <ul class="top-list" id="top-ips"></ul>
         </div>
 
-        <div class="main-panel">
-            <div class="tabs">
-                <div class="tab active" onclick="switchTab('interactions')">🔴 Live Interactions</div>
-                <div class="tab" onclick="switchTab('commands')">💻 Commands</div>
-                <div class="tab" onclick="switchTab('files')">📁 Files</div>
-                <div class="tab" onclick="switchTab('webshells')">🐚 Webshells</div>
-                <div class="tab" onclick="switchTab('sql')">🗄️ SQL</div>
-                <div class="tab" onclick="switchTab('payloads')">💣 Payloads</div>
-            </div>
-            <div class="content" id="content"></div>
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('interactions')">live</div>
+            <div class="tab" onclick="switchTab('commands')">commands</div>
+            <div class="tab" onclick="switchTab('files')">files</div>
+            <div class="tab" onclick="switchTab('webshells')">webshells</div>
+            <div class="tab" onclick="switchTab('sql')">sql</div>
+            <div class="tab" onclick="switchTab('payloads')">payloads</div>
         </div>
+
+        <div class="feed" id="content"></div>
     </div>
 
     <script>
         let currentTab = 'interactions';
         let eventSource = null;
 
-        // Connect to SSE stream
         function connectSSE() {
             eventSource = new EventSource('/api/stream');
-
-            eventSource.addEventListener('stats', (e) => {
-                const stats = JSON.parse(e.data);
-                updateStats(stats);
-            });
-
+            eventSource.addEventListener('stats', (e) => updateStats(JSON.parse(e.data)));
             eventSource.addEventListener('interaction', (e) => {
-                const interaction = JSON.parse(e.data);
-                if (currentTab === 'interactions') {
-                    addInteraction(interaction);
-                }
+                if (currentTab === 'interactions') addInteraction(JSON.parse(e.data));
             });
-
-            eventSource.onerror = () => {
-                console.log('SSE connection lost, reconnecting...');
-                setTimeout(connectSSE, 5000);
-            };
+            eventSource.onerror = () => setTimeout(connectSSE, 5000);
         }
 
         function updateStats(stats) {
-            document.getElementById('total-interactions').textContent = stats.total_interactions || 0;
-            document.getElementById('command-captures').textContent = stats.command_captures || 0;
-            document.getElementById('file-uploads').textContent = stats.file_uploads || 0;
-            document.getElementById('webshell-detects').textContent = stats.webshell_detects || 0;
-            document.getElementById('sql-injections').textContent = stats.sql_injections || 0;
-            document.getElementById('payload-captures').textContent = stats.payload_captures || 0;
-
-            // Update top CVEs
-            const cvesList = document.getElementById('top-cves');
-            cvesList.innerHTML = '';
-            const cves = Object.entries(stats.top_cves || {}).sort((a, b) => b[1] - a[1]).slice(0, 5);
-            cves.forEach(([cve, count]) => {
-                cvesList.innerHTML += '<li><span class="top-list-label">' + cve + '</span><span class="top-list-value">' + count + '</span></li>';
-            });
-
-            // Update top IPs
-            const ipsList = document.getElementById('top-ips');
-            ipsList.innerHTML = '';
-            const ips = Object.entries(stats.top_ips || {}).sort((a, b) => b[1] - a[1]).slice(0, 5);
-            ips.forEach(([ip, count]) => {
-                ipsList.innerHTML += '<li><span class="top-list-label">' + ip + '</span><span class="top-list-value">' + count + '</span></li>';
-            });
+            document.getElementById('total').textContent = stats.total_interactions || 0;
+            document.getElementById('commands').textContent = stats.command_captures || 0;
+            document.getElementById('files').textContent = stats.file_uploads || 0;
+            document.getElementById('webshells').textContent = stats.webshell_detects || 0;
+            document.getElementById('sql').textContent = stats.sql_injections || 0;
+            document.getElementById('payloads').textContent = stats.payload_captures || 0;
         }
 
         function addInteraction(int) {
             const content = document.getElementById('content');
             const div = document.createElement('div');
-            div.className = 'interaction new';
-
-            const severity = int.severity || 'unknown';
-            const cve = int.cve || int.template_id || 'unknown';
+            div.className = 'entry new';
+            
+            const time = (int.timestamp || '').split('T')[1]?.split('+')[0] || 'unknown';
             const method = int.method || 'GET';
             const path = int.path || '/';
-            const sourceIp = int.source_ip || 'unknown';
-            const timestamp = int.timestamp || new Date().toISOString();
-            const userAgent = (int.metadata?.user_agent || 'unknown').substring(0, 40);
+            const ip = int.source_ip || 'unknown';
+            const cve = int.cve || int.template_id || '';
+            const severity = int.severity || '';
 
-            let html = '<div class="int-header"><div>';
-            html += '<span class="int-method">' + method + '</span>';
-            html += '<span class="int-path">' + path + '</span>';
-            html += '</div><div>';
-            if (cve !== 'unknown' && cve !== 'unmatched') {
-                html += '<span class="int-cve">' + cve + '</span>';
+            let html = '<span class="timestamp">' + time + '</span>';
+            html += '<span class="method">' + method + '</span>';
+            html += '<span class="path">' + path + '</span>';
+            html += '<span class="ip">' + ip + '</span>';
+            
+            if (cve && cve !== 'unknown' && cve !== 'unmatched') {
+                html += '<span class="cve">[' + cve + ']</span>';
             }
-            if (severity !== 'unknown') {
-                html += '<span class="int-severity severity-' + severity + '">' + severity.toUpperCase() + '</span>';
+            if (severity && severity !== 'unknown') {
+                html += '<span class="severity-' + severity + '">[' + severity + ']</span>';
             }
-            html += '</div></div>';
-            html += '<div style="font-size: 11px; color: #888;">';
-            html += '<span class="int-ip">🌐 ' + sourceIp + '</span> • ';
-            html += '<span>' + timestamp + '</span> • ';
-            html += '<span>UA: ' + userAgent + '...</span>';
-            html += '</div>';
 
             div.innerHTML = html;
             content.insertBefore(div, content.firstChild);
-
-            // Remove 'new' class after animation
-            setTimeout(() => div.classList.remove('new'), 1000);
-
-            // Keep only last 50 interactions
-            while (content.children.length > 50) {
-                content.removeChild(content.lastChild);
-            }
+            
+            setTimeout(() => div.classList.remove('new'), 500);
+            while (content.children.length > 100) content.removeChild(content.lastChild);
         }
 
         async function switchTab(tab) {
@@ -433,72 +293,62 @@ func (ui *UIServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 
         async function loadInteractions() {
             const content = document.getElementById('content');
-            content.innerHTML = '<div style="text-align: center; padding: 40px; color: #888;">Loading interactions...</div>';
+            content.innerHTML = '<div class="entry">loading...</div>';
 
             try {
-                const response = await fetch('/api/interactions?limit=50');
+                const response = await fetch('/api/interactions?limit=100');
                 const interactions = await response.json();
-
                 content.innerHTML = '';
                 interactions.forEach(int => addInteraction(int));
-
                 if (interactions.length === 0) {
-                    content.innerHTML = '<div style="text-align: center; padding: 40px; color: #888;">No interactions yet. Waiting for attacks...</div>';
+                    content.innerHTML = '<div class="entry">no interactions yet</div>';
                 }
             } catch (e) {
-                content.innerHTML = '<div style="text-align: center; padding: 40px; color: #ff0066;">Error loading interactions: ' + e.message + '</div>';
+                content.innerHTML = '<div class="entry">error: ' + e.message + '</div>';
             }
         }
 
         async function loadCaptures(type) {
             const content = document.getElementById('content');
-            content.innerHTML = '<div style="text-align: center; padding: 40px; color: #888;">Loading ' + type + '...</div>';
+            content.innerHTML = '<div class="entry">loading...</div>';
 
             try {
                 const response = await fetch('/api/captures/' + type);
                 const captures = await response.json();
-
                 content.innerHTML = '';
 
                 if (captures.length === 0) {
-                    content.innerHTML = '<div style="text-align: center; padding: 40px; color: #888;">No ' + type + ' captured yet.</div>';
+                    content.innerHTML = '<div class="entry">no ' + type + ' captured</div>';
                     return;
                 }
 
+                const ul = document.createElement('ul');
+                ul.className = 'capture-list';
                 captures.forEach(cap => {
-                    const div = document.createElement('div');
-                    div.className = 'capture-item';
-                    div.onclick = () => viewCapture(type, cap.name);
-
-                    const icon = type === 'commands' ? '💻' : type === 'files' ? '📁' : type === 'webshells' ? '🐚' : type === 'sql' ? '🗄️' : '💣';
-
-                    div.innerHTML = '<span class="capture-icon">' + icon + '</span>' +
-                        '<strong>' + cap.name + '</strong>' +
-                        '<div style="font-size: 11px; color: #888; margin-top: 5px;">' +
-                        cap.size + ' • ' + cap.modified +
-                        '</div>';
-                    content.appendChild(div);
+                    const li = document.createElement('li');
+                    li.textContent = cap.name + ' (' + cap.size + ')';
+                    li.onclick = () => viewCapture(type, cap.name);
+                    ul.appendChild(li);
                 });
+                content.appendChild(ul);
             } catch (e) {
-                content.innerHTML = '<div style="text-align: center; padding: 40px; color: #ff0066;">Error loading ' + type + ': ' + e.message + '</div>';
+                content.innerHTML = '<div class="entry">error: ' + e.message + '</div>';
             }
         }
 
         async function viewCapture(type, file) {
             const content = document.getElementById('content');
-            content.innerHTML = '<div style="text-align: center; padding: 40px; color: #888;">Loading file...</div>';
+            content.innerHTML = '<div class="entry">loading...</div>';
 
             try {
                 const response = await fetch('/api/captures/' + type + '/' + file);
                 const text = await response.text();
 
-                content.innerHTML = '<div style="margin-bottom: 15px;">' +
-                    '<button onclick="switchTab(\'' + type + '\')" style="background: #00ff41; color: #0a0e27; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer;">← Back</button>' +
-                    '<strong style="margin-left: 15px;">' + file + '</strong>' +
-                    '</div>' +
-                    '<pre style="background: #0a0e27; padding: 15px; border-radius: 4px; overflow-x: auto; font-size: 12px;">' + escapeHtml(text) + '</pre>';
+                content.innerHTML = '<button onclick="switchTab(\'' + type + '\')">back</button>' +
+                    '<h2 style="margin: 15px 0; font-size: 13px; color: #0f0;">' + file + '</h2>' +
+                    '<pre>' + escapeHtml(text) + '</pre>';
             } catch (e) {
-                content.innerHTML = '<div style="text-align: center; padding: 40px; color: #ff0066;">Error loading file: ' + e.message + '</div>';
+                content.innerHTML = '<div class="entry">error: ' + e.message + '</div>';
             }
         }
 
@@ -508,20 +358,14 @@ func (ui *UIServer) handleIndex(w http.ResponseWriter, r *http.Request) {
             return div.innerHTML;
         }
 
-        // Initial load
+        // Init
         connectSSE();
         loadInteractions();
-
-        // Refresh stats every 5 seconds
-        setInterval(() => {
-            fetch('/api/stats')
-                .then(r => r.json())
-                .then(updateStats)
-                .catch(console.error);
-        }, 5000);
+        setInterval(() => fetch('/api/stats').then(r => r.json()).then(updateStats), 2000);
     </script>
 </body>
-</html>`
+</html>
+`
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(html))
