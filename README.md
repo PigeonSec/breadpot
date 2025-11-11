@@ -148,7 +148,7 @@ The repository includes example templates in `templates/` directory that you can
 
 Create your own Nuclei-compatible YAML templates in the `templates/` directory.
 
-
+m
 ### 3. Configure the Honeypot
 
 Edit `config.yaml`:
